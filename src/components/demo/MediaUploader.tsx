@@ -1,41 +1,40 @@
-
-import { useState, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, Image, Video, AlertCircle } from 'lucide-react';
-import { processImage, processVideo } from '@/services/api';
-import { useToast } from '@/components/ui/use-toast';
+import { useState, useRef } from "react";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Upload, Image, Video, AlertCircle } from "lucide-react";
+import { processImage, processVideo } from "@/services/api";
+import { useToast } from "@/components/ui/use-toast";
 
 export function MediaUploader() {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [resultUrl, setResultUrl] = useState<string | null>(null);
-  const [plate, setPlate] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [mediaType, setMediaType] = useState("image");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [resultUrl, setResultUrl] = useState(null);
+  const [plate, setPlate] = useState(null);
+  const fileInputRef = useRef(null);
   const { toast } = useToast();
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     // Validate file type
-    if (mediaType === 'image' && !file.type.startsWith('image/')) {
+    if (mediaType === "image" && !file.type.startsWith("image/")) {
       toast({
         title: "Invalid file type",
         description: "Please select an image file.",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
 
-    if (mediaType === 'video' && !file.type.startsWith('video/')) {
+    if (mediaType === "video" && !file.type.startsWith("video/")) {
       toast({
         title: "Invalid file type",
         description: "Please select a video file.",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
@@ -43,7 +42,7 @@ export function MediaUploader() {
     setSelectedFile(file);
     setResultUrl(null);
     setPlate(null);
-    
+
     // Create a preview URL
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
@@ -58,21 +57,21 @@ export function MediaUploader() {
       toast({
         title: "No file selected",
         description: "Please select a file first.",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
 
     setIsProcessing(true);
     try {
-      const result = mediaType === 'image' 
-        ? await processImage(selectedFile)
-        : await processVideo(selectedFile);
+      const result =
+        mediaType === "image"
+          ? await processImage(selectedFile)
+          : await processVideo(selectedFile);
 
       if (result.success && result.data) {
         setResultUrl(result.data);
-        // Simulate detecting a license plate (this would come from the API in a real app)
-        setPlate(generateRandomPlate());
+        setPlate(result.plate);
         toast({
           title: "Processing successful",
           description: "License plate detection completed.",
@@ -81,42 +80,23 @@ export function MediaUploader() {
         toast({
           title: "Processing failed",
           description: result.error || "An unknown error occurred.",
-          variant: "destructive"
+          variant: "destructive",
         });
       }
     } catch (error) {
       toast({
         title: "Processing error",
         description: "An unexpected error occurred while processing the file.",
-        variant: "destructive"
+        variant: "destructive",
       });
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const generateRandomPlate = () => {
-    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const numbers = '0123456789';
-    
-    let plate = '';
-    // Generate 3 random letters
-    for (let i = 0; i < 3; i++) {
-      plate += letters.charAt(Math.floor(Math.random() * letters.length));
-    }
-    // Add a space
-    plate += ' ';
-    // Generate 3 random numbers
-    for (let i = 0; i < 3; i++) {
-      plate += numbers.charAt(Math.floor(Math.random() * numbers.length));
-    }
-    
-    return plate;
-  };
-
   return (
     <div className="w-full">
-      <Tabs defaultValue="image" onValueChange={(v) => setMediaType(v as 'image' | 'video')}>
+      <Tabs defaultValue="image" onValueChange={(v) => setMediaType(v)}>
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="image" className="flex items-center gap-2">
             <Image className="h-4 w-4" />
@@ -127,20 +107,20 @@ export function MediaUploader() {
             <span>Video</span>
           </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="image" className="pt-4">
           <Card className="p-6">
             <div className="space-y-4">
-              <div 
+              <div
                 className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-gray-50 transition-colors"
                 onClick={handleUploadClick}
               >
                 {previewUrl ? (
                   <div className="relative">
-                    <img 
-                      src={previewUrl} 
-                      alt="Preview" 
-                      className="mx-auto max-h-[300px] rounded" 
+                    <img
+                      src={previewUrl}
+                      alt="Preview"
+                      className="mx-auto max-h-64 rounded"
                     />
                     <div className="mt-2 text-sm text-gray-500">
                       Click to change image
@@ -165,31 +145,31 @@ export function MediaUploader() {
                   className="hidden"
                 />
               </div>
-              
-              <Button 
-                onClick={handleProcessMedia} 
+
+              <Button
+                onClick={handleProcessMedia}
                 disabled={!selectedFile || isProcessing}
                 className="w-full"
               >
-                {isProcessing ? 'Processing...' : 'Process Image'}
+                {isProcessing ? "Processing..." : "Process Image"}
               </Button>
             </div>
           </Card>
         </TabsContent>
-        
+
         <TabsContent value="video" className="pt-4">
           <Card className="p-6">
             <div className="space-y-4">
-              <div 
+              <div
                 className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:bg-gray-50 transition-colors"
                 onClick={handleUploadClick}
               >
                 {previewUrl ? (
                   <div className="relative">
-                    <video 
-                      src={previewUrl} 
+                    <video
+                      src={previewUrl}
                       controls
-                      className="mx-auto max-h-[300px] rounded" 
+                      className="mx-auto max-h-64 rounded"
                     />
                     <div className="mt-2 text-sm text-gray-500">
                       Click to change video
@@ -214,13 +194,13 @@ export function MediaUploader() {
                   className="hidden"
                 />
               </div>
-              
-              <Button 
-                onClick={handleProcessMedia} 
+
+              <Button
+                onClick={handleProcessMedia}
                 disabled={!selectedFile || isProcessing}
                 className="w-full"
               >
-                {isProcessing ? 'Processing...' : 'Process Video'}
+                {isProcessing ? "Processing..." : "Process Video"}
               </Button>
             </div>
           </Card>
@@ -231,26 +211,28 @@ export function MediaUploader() {
         <div className="mt-8 border rounded-lg p-6 bg-white">
           <h3 className="text-lg font-medium">Detection Result</h3>
           <div className="mt-4">
-            {mediaType === 'image' ? (
-              <img src={resultUrl} alt="Processed" className="mx-auto max-h-[400px] rounded" />
+            {mediaType === "image" ? (
+              <img
+                src={resultUrl}
+                alt="Processed"
+                className="mx-auto max-h-96 rounded"
+              />
             ) : (
-              <video 
-                src={resultUrl} 
+              <video
+                src={resultUrl}
                 controls
-                className="mx-auto max-h-[400px] rounded" 
+                className="mx-auto max-h-96 rounded"
               />
             )}
           </div>
-          
+
           {plate && (
-            <div className="mt-4 p-4 bg-brand-lightGray rounded-lg">
+            <div className="mt-4 p-4 bg-gray-100 rounded-lg">
               <h4 className="font-medium">Detected License Plate:</h4>
-              <div className="mt-2 p-3 bg-white border-2 border-brand-blue rounded-md inline-block">
-                <span className="text-2xl font-mono font-bold tracking-wider">{plate}</span>
-              </div>
-              <div className="mt-2 text-sm text-gray-500 flex items-center">
-                <AlertCircle className="h-4 w-4 mr-1" />
-                <span>Note: This is simulated data. Real detection would be performed by the Flask API.</span>
+              <div className="mt-2 p-3 bg-white border-2 border-blue-500 rounded-md inline-block">
+                <span className="text-2xl font-mono font-bold tracking-wider">
+                  {plate}
+                </span>
               </div>
             </div>
           )}

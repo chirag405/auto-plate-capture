@@ -11,6 +11,8 @@ node_modules
 dist
 dist-ssr
 *.local
+license_plate_env
+./backend/license_plate_env
 
 # Editor directories and files
 .vscode/*
