@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, Image, Video, Loader } from "lucide-react";
-import { processImage } from "@/services/api";
+import { processImage, processVideo } from "@/services/api";
 import { useToast } from "@/components/ui/use-toast";
 
 export function MediaUploader() {
@@ -13,6 +13,9 @@ export function MediaUploader() {
   const [previewUrl, setPreviewUrl] = useState(null);
   const [resultUrl, setResultUrl] = useState(null);
   const [plate, setPlate] = useState(null);
+  const [plates, setPlates] = useState([]);
+  const [progress, setProgress] = useState(0);
+  const [videoName, setVideoName] = useState(null);
   const fileInputRef = useRef(null);
   const { toast } = useToast();
 
@@ -42,6 +45,7 @@ export function MediaUploader() {
     setSelectedFile(file);
     setResultUrl(null);
     setPlate(null);
+    setProgress(0);
 
     // Create a preview URL
     const url = URL.createObjectURL(file);
@@ -63,9 +67,11 @@ export function MediaUploader() {
     }
 
     setIsProcessing(true);
+    setProgress(0);
 
-    if (mediaType === "image") {
-      try {
+    try {
+      if (mediaType === "image") {
+        // Process image
         const result = await processImage(selectedFile);
 
         if (result.success && result.data) {
@@ -78,32 +84,65 @@ export function MediaUploader() {
         } else {
           toast({
             title: "Processing failed",
-            description: result.error || "An unknown error occurred.",
+            description: result.error || "No license plate detected.",
             variant: "destructive",
           });
         }
-      } catch (error) {
-        toast({
-          title: "Processing error",
-          description:
-            "An unexpected error occurred while processing the file.",
-          variant: "destructive",
-        });
-      } finally {
-        setIsProcessing(false);
+      } else {
+        // Process video - show progress simulation
+        const progressInterval = setInterval(() => {
+          setProgress((prev) => {
+            const newProgress = prev + Math.random() * 5;
+            return newProgress >= 100 ? 100 : newProgress;
+          });
+        }, 500);
+
+        // Process video
+        const result = await processVideo(selectedFile);
+
+        clearInterval(progressInterval);
+        setProgress(100);
+
+        if (result.success && result.data) {
+          // For videos, ensure we're using a timestamped URL to prevent caching issues
+          const videoUrl = `${result.data}?t=${new Date().getTime()}`;
+          setResultUrl(videoUrl);
+
+          // Store the detected plates array
+          if (result.plates && Array.isArray(result.plates)) {
+            setPlates(result.plates);
+          } else {
+            setPlates([]);
+          }
+
+          // Store video name for download functionality
+          if (result.videoName) {
+            setVideoName(result.videoName);
+          }
+
+          toast({
+            title: "Processing successful",
+            description:
+              result.plates && result.plates.length > 0
+                ? `Detected ${result.plates.length} license plates in video.`
+                : "Video processing completed. No plates found.",
+          });
+        } else {
+          toast({
+            title: "Processing failed",
+            description: result.error || "No license plate detected in video.",
+            variant: "destructive",
+          });
+        }
       }
-    } else {
-      // For video, we'll simulate processing and load the pre-existing output
-      // No plate information for videos
-      setTimeout(() => {
-        setResultUrl("/output.mp4");
-        setPlate(null); // No plate for videos
-        setIsProcessing(false);
-        toast({
-          title: "Processing successful",
-          description: "Video processing completed.",
-        });
-      }, 2000); // Simulate 2 seconds of processing time
+    } catch (error) {
+      toast({
+        title: "Processing error",
+        description: "An unexpected error occurred while processing the file.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -117,6 +156,9 @@ export function MediaUploader() {
           setPreviewUrl(null);
           setResultUrl(null);
           setPlate(null);
+          setPlates([]);
+          setProgress(0);
+          setVideoName(null);
         }}
       >
         <TabsList className="grid w-full grid-cols-2">
@@ -245,10 +287,21 @@ export function MediaUploader() {
 
       {isProcessing && mediaType === "video" && (
         <div className="mt-8 border rounded-lg p-6 bg-white">
-          <div className="flex flex-col items-center justify-center py-12">
-            <Loader className="h-12 w-12 text-blue-500 animate-spin" />
-            <p className="mt-4 text-lg font-medium">Processing your video...</p>
-            <p className="text-sm text-gray-500">This may take a moment</p>
+          <div className="flex flex-col items-center justify-center py-8">
+            <Loader className="h-12 w-12 text-blue-500 animate-spin mb-4" />
+            <p className="text-lg font-medium">Processing your video...</p>
+            <p className="text-sm text-gray-500 mb-4">This may take a moment</p>
+
+            {/* Progress bar */}
+            <div className="w-full bg-gray-200 rounded-full h-2.5">
+              <div
+                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              ></div>
+            </div>
+            <p className="text-sm text-gray-500 mt-2">
+              {Math.round(progress)}% complete
+            </p>
           </div>
         </div>
       )}
@@ -265,15 +318,26 @@ export function MediaUploader() {
               />
             ) : (
               <video
+                key={resultUrl} /* Key to force re-render */
                 src={resultUrl}
                 controls
-                className="mx-auto max-h-96 rounded"
+                controlsList="nodownload"
+                className="mx-auto max-h-96 rounded w-full"
+                onError={(e) => {
+                  console.error("Video error:", e);
+                  toast({
+                    title: "Video playback error",
+                    description:
+                      "Could not play the processed video. Try downloading it instead.",
+                    variant: "destructive",
+                  });
+                }}
               />
             )}
           </div>
 
-          {/* Only show plate for images, not for videos */}
-          {plate && mediaType === "image" && (
+          {/* For image - show single plate */}
+          {mediaType === "image" && plate && (
             <div className="mt-4 p-4 bg-gray-100 rounded-lg">
               <h4 className="font-medium">Detected License Plate:</h4>
               <div className="mt-2 p-3 bg-white border-2 border-blue-500 rounded-md inline-block">
@@ -281,6 +345,61 @@ export function MediaUploader() {
                   {plate}
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* For video - show multiple plates if available */}
+          {mediaType === "video" && plates && plates.length > 0 && (
+            <div className="mt-4 p-4 bg-gray-100 rounded-lg">
+              <h4 className="font-medium">Detected License Plates:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                {plates.slice(0, 5).map((plateData, index) => (
+                  <div
+                    key={index}
+                    className="p-3 bg-white border-2 border-blue-500 rounded-md"
+                  >
+                    <span className="text-xl font-mono font-bold tracking-wider block">
+                      {plateData.plate}
+                    </span>
+                    <span className="text-sm text-gray-600 mt-1 block">
+                      Confidence: {Math.round(plateData.confidence * 100)}% •
+                      Detected {plateData.count} times
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {mediaType === "video" && (!plates || plates.length === 0) && (
+            <div className="mt-4 p-4 bg-gray-100 rounded-lg">
+              <h4 className="font-medium">
+                No license plates detected in video
+              </h4>
+            </div>
+          )}
+
+          {/* Download button for video */}
+          {mediaType === "video" && resultUrl && (
+            <div className="mt-4">
+              <Button
+                onClick={() => {
+                  // Extract filename from URL if it's a server path
+                  const filename = resultUrl.startsWith("/api/")
+                    ? resultUrl.split("/").pop()
+                    : "processed-video.mp4";
+
+                  const link = document.createElement("a");
+                  link.href = resultUrl;
+                  link.download = filename;
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Download Video
+              </Button>
             </div>
           )}
         </div>

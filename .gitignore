@@ -10,9 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+backend/results
+backend/uploads
 *.local
 license_plate_env
-./backend/license_plate_env
+backend/license_plate_env
 
 # Editor directories and files
 .vscode/*

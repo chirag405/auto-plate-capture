@@ -38,26 +38,40 @@ export const processImage = async (file) => {
   }
 };
 
-export const processVideo = async (file) => {
-  const formData = new FormData();
-  formData.append("file", file);
-
+export async function processVideo(file) {
   try {
+    const formData = new FormData();
+    formData.append("file", file);
+
     const response = await fetch(`${API_URL}/process-video`, {
       method: "POST",
       body: formData,
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData.error || "Failed to process video",
+      };
+    }
+
     const data = await response.json();
+
+    // Ensure the URL is absolute if it's a relative path
+    if (data.success && data.data && data.data.startsWith("/api/")) {
+      data.data = `${API_URL}${data.data.substring(4)}`;
+    }
+
     return data;
   } catch (error) {
     console.error("Error processing video:", error);
     return {
       success: false,
-      error: "Network error while processing video",
+      error: error.message || "An unexpected error occurred",
     };
   }
-};
+}
 // Get detection history
 export const getDetectionHistory = async (): Promise<ApiResponse<any[]>> => {
   try {

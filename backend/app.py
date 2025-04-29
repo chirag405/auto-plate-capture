@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import uuid
@@ -75,14 +75,16 @@ def process_video_file(video_path):
     
     # Prepare output video
     output_path = os.path.join(RESULT_FOLDER, f"result_{os.path.basename(video_path)}")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    # Use H.264 codec which is more widely supported
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
-    plate_text = None
+    # Track all detected plates
+    plate_detections = []
     
-    # Process every 5th frame to reduce computation
+    # Process every 3rd frame to reduce computation but catch more plates
     while success:
-        if frame_count % 5 == 0:
+        if frame_count % 3 == 0:
             # Save frame temporarily
             frame_path = os.path.join(temp_dir, f"frame_{frame_count}.jpg")
             cv2.imwrite(frame_path, image)
@@ -90,23 +92,41 @@ def process_video_file(video_path):
             # Detect license plate in frame
             results = model(frame_path)
             
+            # Process all detected plates in this frame (not just the first one)
             if len(results) > 0 and len(results[0].boxes) > 0:
-                # Get the first detection
-                box = results[0].boxes[0].xyxy.cpu().numpy()[0].astype(int)
-                x1, y1, x2, y2 = box
-                
-                # Extract the license plate region
-                plate_region = image[y1:y2, x1:x2]
-                
-                # Use OCR to extract text if we haven't found a plate yet
-                if plate_text is None:
-                    plate_text = pytesseract.image_to_string(plate_region, config='--psm 7')
-                    plate_text = ''.join(c for c in plate_text if c.isalnum() or c.isspace()).strip()
-                
-                # Draw the bounding box on the image
-                cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                cv2.putText(image, plate_text or "Processing...", (x1, y1-10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
+                for i in range(min(len(results[0].boxes), 3)):  # Process up to 3 plates per frame
+                    try:
+                        # Get detection
+                        box = results[0].boxes[i].xyxy.cpu().numpy()[0].astype(int)
+                        x1, y1, x2, y2 = box
+                        
+                        # Ensure box coordinates are within image bounds
+                        x1, y1 = max(0, x1), max(0, y1)
+                        x2, y2 = min(width, x2), min(height, y2)
+                        
+                        if x2 > x1 and y2 > y1:  # Valid box
+                            # Extract the license plate region
+                            plate_region = image[y1:y2, x1:x2]
+                            
+                            # Use OCR to extract text
+                            current_plate_text = pytesseract.image_to_string(plate_region, config='--psm 7')
+                            current_plate_text = ''.join(c for c in current_plate_text if c.isalnum() or c.isspace()).strip()
+                            
+                            if current_plate_text and len(current_plate_text) >= 4:
+                                # Record the frame number with the plate
+                                plate_detections.append({
+                                    'plate': current_plate_text,
+                                    'frame': frame_count,
+                                    'confidence': float(results[0].boxes[i].conf)
+                                })
+                            
+                            # Draw the bounding box on the image
+                            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                            if current_plate_text:
+                                cv2.putText(image, current_plate_text, (x1, y1-10), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
+                    except Exception as e:
+                        print(f"Error processing detection: {e}")
             
             # Remove temporary frame file
             os.remove(frame_path)
@@ -125,12 +145,55 @@ def process_video_file(video_path):
     # Clean up temp directory
     os.rmdir(temp_dir)
     
-    return output_path, plate_text
+    # Group detected plates
+    from collections import Counter
+    unique_plates = []
+    
+    if plate_detections:
+        # Group similar plates and find unique ones
+        grouped_plates = {}
+        for detection in plate_detections:
+            plate = detection['plate']
+            # Check if this plate is similar to any existing group
+            found_match = False
+            for group_key in grouped_plates:
+                # Simple similarity check - if 70% of characters match
+                similarity = sum(c1 == c2 for c1, c2 in zip(plate, group_key)) / max(len(plate), len(group_key))
+                if similarity > 0.7:
+                    grouped_plates[group_key].append(detection)
+                    found_match = True
+                    break
+            
+            if not found_match:
+                grouped_plates[plate] = [detection]
+        
+        # Extract top plates with frame ranges
+        for plate, detections in grouped_plates.items():
+            if len(detections) >= 2:  # Only include plates detected multiple times
+                frames = [d['frame'] for d in detections]
+                avg_confidence = sum(d['confidence'] for d in detections) / len(detections)
+                unique_plates.append({
+                    'plate': plate,
+                    'count': len(detections),
+                    'first_frame': min(frames),
+                    'last_frame': max(frames),
+                    'confidence': avg_confidence
+                })
+        
+        # Sort by confidence and number of detections
+        unique_plates.sort(key=lambda x: (x['count'], x['confidence']), reverse=True)
+    
+    return output_path, unique_plates
 
 def get_base64_encoded_image(image_path):
     """Convert image to base64 for sending to frontend"""
     with open(image_path, "rb") as img_file:
         return base64.b64encode(img_file.read()).decode('utf-8')
+
+def get_base64_encoded_video(video_path):
+    """Convert video to base64 for sending to frontend"""
+    with open(video_path, "rb") as video_file:
+        return base64.b64encode(video_file.read()).decode('utf-8')
 
 @app.route('/api/process-image', methods=['POST'])
 def process_image():
@@ -190,19 +253,20 @@ def process_video():
         
         try:
             # Process the video
-            result_path, plate_text = process_video_file(file_path)
+            result_path, plate_detections = process_video_file(file_path)
             
-            # For video, we don't return base64 as it would be too large
-            # Instead, we serve the file from our server
+            # Always serve from server for better compatibility
             video_url = f"/api/results/{os.path.basename(result_path)}"
             
             return jsonify({
                 'success': True,
                 'data': video_url,
-                'plate': plate_text or "No text detected"
+                'plates': plate_detections,
+                'videoName': os.path.basename(result_path)
             })
             
         except Exception as e:
+            print(f"Error processing video: {str(e)}")
             return jsonify({'success': False, 'error': str(e)}), 500
         finally:
             # Clean up
