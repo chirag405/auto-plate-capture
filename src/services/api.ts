@@ -1,5 +1,6 @@
-// This file will handle the communication with the Flask backend API
+// Live Camera Service - api.js
 
+// Common interfaces
 interface ApiResponse<T> {
   success: boolean;
   data?: T;
@@ -72,6 +73,39 @@ export async function processVideo(file) {
     };
   }
 }
+
+export const processLiveFrame = async (imageData) => {
+  try {
+    // Send the base64 image data directly to the backend
+    const response = await fetch(`${API_URL}/process-live-frame`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image: imageData,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return {
+        success: false,
+        error: errorData.error || "Failed to process camera frame",
+      };
+    }
+
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Error processing live frame:", error);
+    return {
+      success: false,
+      error: "Failed to process camera frame",
+    };
+  }
+};
+
 // Get detection history
 export const getDetectionHistory = async (): Promise<ApiResponse<any[]>> => {
   try {

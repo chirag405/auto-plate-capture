@@ -1,0 +1,26 @@
+[
+  {
+    "id": "48fc4043-d7e1-49ac-8a1f-02908dfd4cf3",
+    "timestamp": "2025-04-30T03:38:21.513702",
+    "type": "image",
+    "licensePlate": "MH20D2366",
+    "confidence": 0.7502071857452393,
+    "thumbnailUrl": "/api/results/result_77026116-c888-47b4-9d2d-6c1a48dd931c.png"
+  },
+  {
+    "id": "6530c9f6-593a-4e8f-ae03-9bc475d016c5",
+    "timestamp": "2025-04-30T03:46:38.837415",
+    "type": "image",
+    "licensePlate": "MH20D2366",
+    "confidence": 0.7502071857452393,
+    "thumbnailUrl": "/api/results/result_74d5b831-1db3-49c5-9e60-0d07bad68be1.png"
+  },
+  {
+    "id": "081c7514-65c8-463b-b94c-9c08b8783b5f",
+    "timestamp": "2025-04-30T03:46:59.040715",
+    "type": "image",
+    "licensePlate": "MH20D2366",
+    "confidence": 0.7502071857452393,
+    "thumbnailUrl": "/api/results/result_846e51e5-f09b-48d2-ab86-43a227b90923.png"
+  }
+]

@@ -236,6 +236,63 @@ def process_image():
             if os.path.exists(file_path):
                 os.remove(file_path)
 
+@app.route('/api/process-live-frame', methods=['POST'])
+def process_live_frame():
+    """Process a base64 encoded image frame from live camera"""
+    try:
+        # Get JSON data from request
+        data = request.json
+        
+        if not data or 'image' not in data:
+            return jsonify({'success': False, 'error': 'No image data provided'}), 400
+        
+        # Extract the base64 image data from the request
+        image_data = data['image']
+        
+        # Strip off the data URL prefix (e.g., 'data:image/jpeg;base64,')
+        if ',' in image_data:
+            image_data = image_data.split(',', 1)[1]
+        
+        # Decode base64 data
+        image_bytes = base64.b64decode(image_data)
+        
+        # Convert to numpy array for OpenCV
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        
+        if img is None:
+            return jsonify({'success': False, 'error': 'Invalid image data'}), 400
+        
+        # Save to temp file for processing
+        filename = f"live_capture_{uuid.uuid4()}.jpg"
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        cv2.imwrite(file_path, img)
+        
+        # Process the image using existing function
+        result_path, plate_text = extract_license_plate(file_path)
+        
+        if result_path is None:
+            return jsonify({
+                'success': False, 
+                'error': 'No license plate detected'
+            }), 400
+        
+        # Convert result image to base64
+        base64_image = get_base64_encoded_image(result_path)
+        
+        return jsonify({
+            'success': True,
+            'data': f"data:image/jpeg;base64,{base64_image}",
+            'plate': plate_text or "No text detected"
+        })
+        
+    except Exception as e:
+        print(f"Error processing live frame: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        # Clean up temp file if it exists
+        if 'file_path' in locals() and os.path.exists(file_path):
+            os.remove(file_path)
 @app.route('/api/process-video', methods=['POST'])
 def process_video():
     if 'file' not in request.files:
