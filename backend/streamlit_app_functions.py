@@ -81,24 +81,35 @@ class LicensePlateDetector:
             if final_cleaned_text and len(final_cleaned_text) >= 2:
                 return final_cleaned_text
             else:
-                debug_image_filename = "NotSaved"
+                # All PSM modes failed. Save the preprocessed image for debugging using absolute paths.
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                debug_image_dir = os.path.join(script_dir, "ocr_debug_images")
+
+                print(f"OCR DEBUG (streamlit): Attempting to create or ensure directory exists: {debug_image_dir}")
+                os.makedirs(debug_image_dir, exist_ok=True)
+                print(f"OCR DEBUG (streamlit): Directory check complete for: {debug_image_dir}")
+                
+                saved_debug_path_status = "NotAttempted" # Default status
+
                 try:
                     if gray_plate is not None:
-                        debug_image_dir = "ocr_debug_images"
-                        os.makedirs(debug_image_dir, exist_ok=True)
                         timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
                         h, w = gray_plate.shape[:2]
-                        debug_image_filename = os.path.join(debug_image_dir, f"debug_ocr_input_{timestamp_str}_{w}x{h}.png")
-                        cv2.imwrite(debug_image_filename, gray_plate)
-                        print(f"OCR DEBUG: Saved preprocessed plate image for Tesseract to {debug_image_filename}")
+                        debug_image_filename_only = f"debug_ocr_input_{timestamp_str}_{w}x{h}.png"
+                        full_debug_path = os.path.join(debug_image_dir, debug_image_filename_only)
+                        
+                        print(f"OCR DEBUG (streamlit): Attempting to save debug image to: {full_debug_path}")
+                        cv2.imwrite(full_debug_path, gray_plate)
+                        print(f"OCR DEBUG (streamlit): Successfully saved preprocessed plate image for Tesseract to {full_debug_path}")
+                        saved_debug_path_status = full_debug_path
                     else:
-                        print("OCR DEBUG: gray_plate not available for saving (it was None).")
-                        debug_image_filename = "NotAvailable"
+                        print("OCR DEBUG (streamlit): gray_plate not available for saving (was None or not defined).")
+                        saved_debug_path_status = "NotAvailable (gray_plate was None)"
                 except Exception as e_save:
-                    print(f"OCR DEBUG: Error saving debug image: {e_save}")
-                    debug_image_filename = f"SaveError_{e_save}"
+                    print(f"OCR DEBUG (streamlit): Error saving debug image to {full_debug_path if 'full_debug_path' in locals() else debug_image_dir}: {str(e_save)}")
+                    saved_debug_path_status = f"SaveError ({str(e_save)})"
 
-                print(f"OCR: All PSM modes failed. Text too short or invalid. Last Original: '{last_original_text}', Last Cleaned: '{last_cleaned_attempt}', Length: {len(last_cleaned_attempt)}, Plate Dims (Original Crop): {plate_region.shape[:2]}, Saved Debug Input: {debug_image_filename}")
+                print(f"OCR (streamlit): All PSM modes failed. Text too short or invalid. Last Original: '{last_original_text}', Last Cleaned: '{last_cleaned_attempt}', Length: {len(last_cleaned_attempt)}, Plate Dims (Original Crop): {plate_region.shape[:2]}, Saved Debug Input: {saved_debug_path_status}")
                 return None
             
         except pytesseract.TesseractError as te: 
