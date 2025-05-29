@@ -22,13 +22,29 @@ except ImportError:
     print("If running from root, try adding 'backend' to PYTHONPATH or adjust sys.path logic.")
     sys.exit(1)
 
-# --- USER ACTION REQUIRED ---
-# 1. Replace 'PATH_TO_YOUR_PROBLEM_IMAGE.PNG' with the actual path to a cropped license plate image
-#    that previously resulted in 'N/A', incorrect short text, or any other OCR issue you want to test.
-#    This path should be relative to the project root or an absolute path.
-# 2. Replace 'EXPECTED_PLATE_TEXT' with the correct, known license plate text for that image.
+# --- USER ACTION REQUIRED FOR OCR TESTING ---
+#
+# How to get a test image:
+# 1. Run the main license plate detection application (either `python backend/opencv_detector.py` 
+#    or the Streamlit app via `streamlit run backend/streamlit_app.py`).
+# 2. If you encounter an image where OCR fails (especially if the plate seems clear but no text is read,
+#    or incorrect text is read after all PSM attempts), the system is designed to automatically 
+#    save a debug image of the preprocessed plate that was fed to Tesseract.
+# 3. Look in the 'ocr_debug_images/' directory. This directory will be created in the location 
+#    where your detection script (e.g., `opencv_detector.py` or `streamlit_app.py`) was run.
+#    Inside, you should find images named like 'debug_ocr_input_YYYYMMDD_HHMMSS_WxH.png'.
+#
+# For this test script:
+# 1. Update 'PATH_TO_TEST_IMAGE' below with the full path to one of these saved 
+#    *preprocessed* debug images from the 'ocr_debug_images/' folder. 
+#    For example, if 'ocr_debug_images' is in your project root, the path might be
+#    "ocr_debug_images/debug_ocr_input_20231027_123456_100x50.png".
+#    Alternatively, you can copy a debug image into the `backend/tests/` directory or a 
+#    subdirectory like `backend/tests/test_images/` and use a relative path.
+# 2. Update 'EXPECTED_PLATE_TEXT' with the correct, actual license plate text for that image. 
+#    You'll need to determine this manually by looking at the original unprocessed image or video frame.
 # ---
-PATH_TO_TEST_IMAGE = "PATH_TO_YOUR_PROBLEM_IMAGE.PNG"  # e.g., "backend/tests/test_images/plate1.png"
+PATH_TO_TEST_IMAGE = "ocr_debug_images/PATH_TO_YOUR_DEBUG_IMAGE.PNG"  # Example: "ocr_debug_images/debug_ocr_input_YYYYMMDD_HHMMSS_WxH.png" or "backend/tests/test_images/my_test_plate.png"
 EXPECTED_PLATE_TEXT = "EXPECTED_PLATE_TEXT" # e.g., "AB123CD"
 
 # Define a default dummy model path relative to the backend directory
@@ -43,9 +59,9 @@ DUMMY_MODEL_FOR_TEST = os.path.join(SCRIPT_DIR, '..', "dummy_ocr_test_model.pt")
 def run_ocr_test():
     print("Starting OCR Test...")
 
-    if PATH_TO_TEST_IMAGE == "PATH_TO_YOUR_PROBLEM_IMAGE.PNG":
-        print(f"TEST SKIPPED: Test image path is not set.")
-        print(f"Please update PATH_TO_TEST_IMAGE in {__file__}")
+    if "PATH_TO_YOUR_DEBUG_IMAGE.PNG" in PATH_TO_TEST_IMAGE or PATH_TO_TEST_IMAGE == "PATH_TO_YOUR_PROBLEM_IMAGE.PNG": # Catches old and new placeholder
+        print(f"TEST SKIPPED: Test image path is not set or is still the placeholder.")
+        print(f"Please update PATH_TO_TEST_IMAGE in {__file__} to a valid debug image path.")
         return
 
     if not os.path.exists(PATH_TO_TEST_IMAGE):

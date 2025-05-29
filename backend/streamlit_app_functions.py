@@ -31,47 +31,86 @@ class LicensePlateDetector:
             
         return frame_rgb
     
-    def extract_text_from_plate(self, plate_region):
+    def extract_text_from_plate(self, plate_region): # plate_region is plate_image_np
         """Extract text from license plate region using OCR"""
         try:
-            # Preprocessing for better OCR results (mirrors opencv_detector.py)
-            gray = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
-            gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC) # Upscale
+            # Preprocessing for better OCR results (mirroring opencv_detector.py)
+            gray_plate = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+            gray_plate = cv2.resize(gray_plate, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+
+            block_size = 11 
+            C_val = 2
+            gray_plate = cv2.adaptiveThreshold(gray_plate, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                             cv2.THRESH_BINARY, block_size, C_val)
             
-            # Adaptive Thresholding
-            gray = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                             cv2.THRESH_BINARY, 11, 2)
-            # Morphological Opening
-            kernel = np.ones((1,1), np.uint8)
-            gray = cv2.morphologyEx(gray, cv2.MORPH_OPEN, kernel)
+            opening_kernel = np.ones((2,2), np.uint8) 
+            gray_plate = cv2.morphologyEx(gray_plate, cv2.MORPH_OPEN, opening_kernel)
+
+            dilate_kernel = np.ones((2,2), np.uint8)
+            gray_plate = cv2.dilate(gray_plate, dilate_kernel, iterations=1)
             
-            # OCR configuration for license plates
-            config = '--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-            original_text_from_tesseract = pytesseract.image_to_string(gray, config=config)
+            psm_modes_to_try = ['7', '8', '6', '11']
+            final_cleaned_text = None
+            last_original_text = ""
+            last_cleaned_attempt = ""
+
+            for psm_mode in psm_modes_to_try:
+                current_config = f'--psm {psm_mode} -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+                try:
+                    original_text_from_tesseract = pytesseract.image_to_string(gray_plate, config=current_config)
+                    last_original_text = original_text_from_tesseract
+                    
+                    cleaned_text_attempt = ''.join(char for char in original_text_from_tesseract if char.isalnum()).upper().strip()
+                    last_cleaned_attempt = cleaned_text_attempt
+
+                    if len(cleaned_text_attempt) >= 2:
+                        final_cleaned_text = cleaned_text_attempt
+                        break 
+                
+                except pytesseract.TesseractError as te_loop:
+                    print(f"OCR Error (Tesseract) with PSM {psm_mode}: {str(te_loop)}. Plate Dims: {plate_region.shape[:2]}")
+                    last_original_text = f"TesseractError with PSM {psm_mode}: {str(te_loop)}"
+                    last_cleaned_attempt = "" 
+                    continue 
+                except Exception as e_loop:
+                    print(f"OCR Error (Unexpected) with PSM {psm_mode}: {str(e_loop)}. Plate Dims: {plate_region.shape[:2]}")
+                    last_original_text = f"Exception with PSM {psm_mode}: {str(e_loop)}"
+                    last_cleaned_attempt = ""
+                    continue 
             
-            # Clean the extracted text
-            cleaned_text = ''.join(char for char in original_text_from_tesseract if char.isalnum()).upper().strip()
-            
-            if len(cleaned_text) >= 2:
-                return cleaned_text
+            if final_cleaned_text and len(final_cleaned_text) >= 2:
+                return final_cleaned_text
             else:
-                # Detailed logging to console (mirrors opencv_detector.py)
-                print(f"OCR: Text too short or invalid. Original: '{original_text_from_tesseract}', Cleaned: '{cleaned_text}', Length: {len(cleaned_text)}, Plate Dims: {plate_region.shape[:2]}")
+                debug_image_filename = "NotSaved"
+                try:
+                    if gray_plate is not None:
+                        debug_image_dir = "ocr_debug_images"
+                        os.makedirs(debug_image_dir, exist_ok=True)
+                        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        h, w = gray_plate.shape[:2]
+                        debug_image_filename = os.path.join(debug_image_dir, f"debug_ocr_input_{timestamp_str}_{w}x{h}.png")
+                        cv2.imwrite(debug_image_filename, gray_plate)
+                        print(f"OCR DEBUG: Saved preprocessed plate image for Tesseract to {debug_image_filename}")
+                    else:
+                        print("OCR DEBUG: gray_plate not available for saving (it was None).")
+                        debug_image_filename = "NotAvailable"
+                except Exception as e_save:
+                    print(f"OCR DEBUG: Error saving debug image: {e_save}")
+                    debug_image_filename = f"SaveError_{e_save}"
+
+                print(f"OCR: All PSM modes failed. Text too short or invalid. Last Original: '{last_original_text}', Last Cleaned: '{last_cleaned_attempt}', Length: {len(last_cleaned_attempt)}, Plate Dims (Original Crop): {plate_region.shape[:2]}, Saved Debug Input: {debug_image_filename}")
                 return None
             
-        except pytesseract.TesseractError as te:
-            # Detailed logging to console (mirrors opencv_detector.py)
-            print(f"OCR Error (Tesseract): {str(te)}. Plate Dims: {plate_region.shape[:2]}. Is Tesseract installed and configured correctly?")
-            # Keep st.error for UI feedback if desired, or remove if console log is sufficient
-            st.error(f"OCR Error (Tesseract): {str(te)}") 
+        except pytesseract.TesseractError as te: 
+            print(f"OCR Error (Tesseract System Level): {str(te)}. Plate Dims: {plate_region.shape[:2]}. Is Tesseract installed and configured correctly?")
+            st.error(f"OCR Error (Tesseract System Level): {str(te)}. Check Tesseract installation.")
             return None
-        except Exception as e:
-            # Detailed logging to console (mirrors opencv_detector.py)
-            print(f"OCR Error (Unexpected): {str(e)}. Plate Dims: {plate_region.shape[:2]}")
-            st.error(f"OCR Error (Unexpected): {str(e)}") # Keep for UI
+        except Exception as e: 
+            print(f"OCR Error (Unexpected Global): {str(e)}. Plate Dims: {plate_region.shape[:2]}")
+            st.error(f"OCR Error (Unexpected): {str(e)}")
             return None
     
-    def detect_plates_in_frame(self, frame):
+    def detect_plates_in_frame(self, frame): # frame is frame_np
         """Detect license plates in a single frame"""
         detections = []
         
@@ -87,8 +126,15 @@ class LicensePlateDetector:
                     x1, y1, x2, y2 = box.xyxy.cpu().numpy()[0].astype(int)
                     confidence = float(box.conf.cpu().numpy()[0])
                     
-                    # Extract plate region
-                    plate_region = frame[y1:y2, x1:x2]
+                    # Add padding to the bounding box (mirroring opencv_detector.py)
+                    padding_pixels = 10
+                    y1_pad = max(0, y1 - padding_pixels)
+                    x1_pad = max(0, x1 - padding_pixels)
+                    y2_pad = min(frame.shape[0], y2 + padding_pixels)
+                    x2_pad = min(frame.shape[1], x2 + padding_pixels)
+                    
+                    # Extract plate region using padded coordinates
+                    plate_region = frame[y1_pad:y2_pad, x1_pad:x2_pad]
                     
                     if plate_region.size > 0:
                         # Extract text from plate
