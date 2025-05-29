@@ -8,6 +8,8 @@ from PIL import Image
 import io
 import base64
 from ultralytics import YOLO
+import json
+from datetime import datetime
 import pytesseract
 
 # Set the path to the Tesseract executable
@@ -23,8 +25,34 @@ model = YOLO('plate_detection_model.pt')
 # Configure upload folder
 UPLOAD_FOLDER = 'uploads'
 RESULT_FOLDER = 'results'
+DATA_FOLDER = 'data'
+DETECTIONS_FILE = os.path.join(DATA_FOLDER, 'detections.json')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(RESULT_FOLDER, exist_ok=True)
+os.makedirs(DATA_FOLDER, exist_ok=True)
+
+def save_detection(detection_data):
+    """Saves detection data to the JSON file."""
+    try:
+        detections = []
+        if os.path.exists(DETECTIONS_FILE):
+            with open(DETECTIONS_FILE, 'r') as f:
+                try:
+                    detections = json.load(f)
+                    if not isinstance(detections, list):
+                        detections = [] # Reset if not a list
+                except json.JSONDecodeError:
+                    detections = [] # Reset if malformed
+        
+        detections.append(detection_data)
+        
+        with open(DETECTIONS_FILE, 'w') as f:
+            json.dump(detections, f, indent=2)
+            
+    except IOError as e:
+        print(f"Error saving detection: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred in save_detection: {e}")
 
 def extract_license_plate(image_path):
     """Extract license plate text from detected regions using OCR"""
@@ -32,7 +60,7 @@ def extract_license_plate(image_path):
     results = model(image_path)
     
     if len(results) == 0 or len(results[0].boxes) == 0:
-        return None, None
+        return None, None, None
     
     # Get the original image
     img = cv2.imread(image_path)
@@ -43,10 +71,17 @@ def extract_license_plate(image_path):
     
     # Extract the license plate region
     plate_region = img[y1:y2, x1:x2]
+
+    # Image Preprocessing for OCR
+    gray_plate = cv2.cvtColor(plate_region, cv2.COLOR_BGR2GRAY)
+    blurred_plate = cv2.GaussianBlur(gray_plate, (3, 3), 0)
+    _, thresh_plate = cv2.threshold(blurred_plate, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # Use pytesseract to extract text
-    plate_text = pytesseract.image_to_string(plate_region, config='--psm 7')
-    plate_text = ''.join(c for c in plate_text if c.isalnum() or c.isspace()).strip()
+    # Use pytesseract to extract text with new config
+    plate_text = pytesseract.image_to_string(thresh_plate, config='--psm 6')
+    
+    # Clean the extracted text - keep only uppercase alphanumeric, remove spaces
+    plate_text = ''.join(c for c in plate_text if c.isalnum()).upper().strip()
     
     # Draw the bounding box on the image
     cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
@@ -56,7 +91,7 @@ def extract_license_plate(image_path):
     result_path = os.path.join(RESULT_FOLDER, f"result_{os.path.basename(image_path)}")
     cv2.imwrite(result_path, img)
     
-    return result_path, plate_text
+    return result_path, plate_text, results
 
 def process_video_file(video_path):
     """Process video for license plate detection"""
@@ -212,7 +247,7 @@ def process_image():
         
         try:
             # Process the image
-            result_path, plate_text = extract_license_plate(file_path)
+            result_path, plate_text, results_obj = extract_license_plate(file_path)
             
             if result_path is None:
                 return jsonify({
@@ -222,6 +257,22 @@ def process_image():
             
             # Convert result image to base64
             base64_image = get_base64_encoded_image(result_path)
+            
+            # Save detection data
+            confidence = 0.0
+            if results_obj and results_obj[0].boxes:
+                confidence = float(results_obj[0].boxes[0].conf)
+
+            detection_data = {
+                'id': str(uuid.uuid4()),
+                'timestamp': datetime.utcnow().isoformat(),
+                'type': 'image',
+                'licensePlate': plate_text or "No text detected",
+                'confidence': confidence,
+                'thumbnailUrl': f"/api/results/{os.path.basename(result_path)}",
+                'processedImageFilename': os.path.basename(result_path)
+            }
+            save_detection(detection_data)
             
             return jsonify({
                 'success': True,
@@ -269,7 +320,7 @@ def process_live_frame():
         cv2.imwrite(file_path, img)
         
         # Process the image using existing function
-        result_path, plate_text = extract_license_plate(file_path)
+        result_path, plate_text, results_obj = extract_license_plate(file_path)
         
         if result_path is None:
             return jsonify({
@@ -279,6 +330,22 @@ def process_live_frame():
         
         # Convert result image to base64
         base64_image = get_base64_encoded_image(result_path)
+        
+        # Save detection data
+        confidence = 0.0
+        if results_obj and results_obj[0].boxes:
+            confidence = float(results_obj[0].boxes[0].conf)
+
+        detection_data = {
+            'id': str(uuid.uuid4()),
+            'timestamp': datetime.utcnow().isoformat(),
+            'type': 'live',
+            'licensePlate': plate_text or "No text detected",
+            'confidence': confidence,
+            'thumbnailUrl': f"/api/results/{os.path.basename(result_path)}",
+            'processedImageFilename': os.path.basename(result_path)
+        }
+        save_detection(detection_data)
         
         return jsonify({
             'success': True,
@@ -310,16 +377,37 @@ def process_video():
         
         try:
             # Process the video
-            result_path, plate_detections = process_video_file(file_path)
+            result_path, unique_plates = process_video_file(file_path)
+            
+            # Save detection data for each unique plate
+            current_timestamp = datetime.utcnow().isoformat()
+            video_filename = os.path.basename(result_path)
+            thumbnail_url = f"/api/results/{video_filename}"
+
+            for plate_info in unique_plates:
+                detection_data = {
+                    'id': str(uuid.uuid4()),
+                    'timestamp': current_timestamp,
+                    'type': 'video',
+                    'licensePlate': plate_info['plate'],
+                    'confidence': plate_info.get('confidence', 0.0), # Use .get for safety
+                    'thumbnailUrl': thumbnail_url,
+                    'processedImageFilename': video_filename,
+                    # Video specific fields (optional, but good for context)
+                    'first_frame': plate_info.get('first_frame'),
+                    'last_frame': plate_info.get('last_frame'),
+                    'detection_count': plate_info.get('count')
+                }
+                save_detection(detection_data)
             
             # Always serve from server for better compatibility
-            video_url = f"/api/results/{os.path.basename(result_path)}"
+            video_url = f"/api/results/{video_filename}"
             
             return jsonify({
                 'success': True,
                 'data': video_url,
-                'plates': plate_detections,
-                'videoName': os.path.basename(result_path)
+                'plates': unique_plates, # Send back the same unique_plates structure
+                'videoName': video_filename
             })
             
         except Exception as e:
@@ -333,6 +421,29 @@ def process_video():
 @app.route('/api/results/<filename>')
 def serve_result(filename):
     return send_from_directory(RESULT_FOLDER, filename)
+
+@app.route('/api/detections', methods=['GET'])
+def get_all_detections():
+    """Returns all recorded license plate detections."""
+    try:
+        if not os.path.exists(DETECTIONS_FILE):
+            return jsonify({'success': True, 'data': []}), 200
+        
+        with open(DETECTIONS_FILE, 'r') as f:
+            try:
+                data = json.load(f)
+                return jsonify({'success': True, 'data': data}), 200
+            except json.JSONDecodeError:
+                # This case handles corrupted JSON
+                return jsonify({'success': False, 'error': 'Could not read detection data: Corrupted file'}), 500
+                
+    except IOError:
+        # This case handles file not found (though covered by os.path.exists) or permission issues
+        return jsonify({'success': False, 'error': 'Could not read detection data: File system error'}), 500
+    except Exception as e:
+        # Catch-all for any other unexpected errors
+        print(f"Unexpected error in get_all_detections: {e}")
+        return jsonify({'success': False, 'error': 'An unexpected error occurred'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

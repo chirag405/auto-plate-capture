@@ -109,54 +109,35 @@ export const processLiveFrame = async (imageData) => {
 // Get detection history
 export const getDetectionHistory = async (): Promise<ApiResponse<any[]>> => {
   try {
-    // Simulating API call
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const response = await fetch(`${API_URL}/detections`);
 
-    // Mock response
-    return {
-      success: true,
-      data: [
-        {
-          id: 1,
-          timestamp: "2025-04-15T14:30:00Z",
-          type: "image",
-          licensePlate: "ABC123",
-          confidence: 0.95,
-          thumbnailUrl:
-            "https://plus.unsplash.com/premium_photo-1676449104832-e4135da358f5?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-        },
-        {
-          id: 2,
-          timestamp: "2025-04-15T10:15:00Z",
-          type: "video",
-          licensePlate: "XYZ789",
-          confidence: 0.87,
-          thumbnailUrl:
-            "https://images.unsplash.com/photo-1580273916550-e323be2ae537?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-        },
-        {
-          id: 3,
-          timestamp: "2025-04-14T16:45:00Z",
-          type: "image",
-          licensePlate: "DEF456",
-          confidence: 0.92,
-          thumbnailUrl:
-            "https://images.unsplash.com/photo-1669211679257-c8a5e98a57e2?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.0.3",
-        },
-      ],
-    };
+    if (!response.ok) {
+      // Try to parse error from backend, otherwise use a generic message
+      let errorMsg = "Failed to fetch detection history";
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.error) {
+          errorMsg = errorData.error;
+        }
+      } catch (e) {
+        // Could not parse JSON error, stick with generic
+        console.error("Could not parse error response:", e);
+      }
+      return {
+        success: false,
+        error: errorMsg,
+      };
+    }
 
-    /*
-    // Real implementation would be something like:
-    const response = await fetch(`${API_BASE_URL}/api/detection-history`);
-    const data = await response.json();
-    return {
-      success: response.ok,
-      data: data.history,
-      error: !response.ok ? data.error : undefined,
-    };
-    */
+    const data = await response.json(); // Backend returns { success: boolean, data?: any[], error?: string }
+    
+    // The backend response structure { success: boolean, data: any[], error?: string }
+    // matches ApiResponse<any[]>, so we can return it directly.
+    // If backend's `success` is false, its `error` field will be used.
+    return data;
+
   } catch (error) {
+    // Catches network errors or other issues with the fetch call itself
     return handleApiError(error);
   }
 };
