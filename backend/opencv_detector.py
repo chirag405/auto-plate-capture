@@ -67,25 +67,35 @@ class LicensePlateDetector:
         try:
             # Preprocessing for better OCR results
             gray_plate = cv2.cvtColor(plate_image_np, cv2.COLOR_BGR2GRAY)
-            gray_plate = cv2.resize(gray_plate, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+            gray_plate = cv2.resize(gray_plate, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC) # Upscale
             gray_plate = cv2.GaussianBlur(gray_plate, (5, 5), 0)
-            gray_plate = cv2.threshold(gray_plate, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+            # Replace Otsu's thresholding with adaptive thresholding
+            gray_plate = cv2.adaptiveThreshold(gray_plate, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                             cv2.THRESH_BINARY, 11, 2)
+            
+            # Morphological opening to remove small noise
+            kernel = np.ones((1,1), np.uint8)
+            gray_plate = cv2.morphologyEx(gray_plate, cv2.MORPH_OPEN, kernel)
             
             # Tesseract OCR configuration for license plates
             # --psm 7: Treat the image as a single text line.
             config = '--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-            text = pytesseract.image_to_string(gray_plate, config=config)
+            original_text_from_tesseract = pytesseract.image_to_string(gray_plate, config=config)
             
             # Clean the extracted text
-            cleaned_text = ''.join(char for char in text if char.isalnum()).upper().strip()
+            cleaned_text = ''.join(char for char in original_text_from_tesseract if char.isalnum()).upper().strip()
             
-            return cleaned_text if len(cleaned_text) >= 3 else None # Basic filter for very short/empty results
+            if len(cleaned_text) >= 2:
+                return cleaned_text
+            else:
+                print(f"OCR: Text too short or invalid. Original: '{original_text_from_tesseract}', Cleaned: '{cleaned_text}', Length: {len(cleaned_text)}, Plate Dims: {plate_image_np.shape[:2]}")
+                return None
             
         except pytesseract.TesseractError as te:
-            print(f"OCR Error (Tesseract): {str(te)}. Is Tesseract installed and configured correctly?")
+            print(f"OCR Error (Tesseract): {str(te)}. Plate Dims: {plate_image_np.shape[:2]}. Is Tesseract installed and configured correctly?")
             return None
         except Exception as e:
-            print(f"OCR Error (Unexpected): {str(e)}")
+            print(f"OCR Error (Unexpected): {str(e)}. Plate Dims: {plate_image_np.shape[:2]}")
             return None
     
     def detect_plates_in_frame(self, frame_np):
