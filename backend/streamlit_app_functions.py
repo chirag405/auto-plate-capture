@@ -82,7 +82,8 @@ class LicensePlateDetector:
                             'bbox': (x1, y1, x2, y2),
                             'confidence': confidence,
                             'text': plate_text,
-                            'timestamp': datetime.datetime.now()
+                            'timestamp': datetime.datetime.now(),
+                            'cropped_plate': plate_region
                         }
                         
                         detections.append(detection)
@@ -115,9 +116,9 @@ class LicensePlateDetector:
     def draw_detections(self, frame, detections):
         """Draw bounding boxes and text on frame"""
         annotated_frame = frame.copy()
-        
-        for detection in detections:
-            x1, y1, x2, y2 = detection['bbox']
+        try:
+            for detection in detections:
+                x1, y1, x2, y2 = detection['bbox']
             confidence = detection['confidence']
             text = detection['text']
             
@@ -138,6 +139,11 @@ class LicensePlateDetector:
             cv2.putText(annotated_frame, label, (x1, y1 - 10), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
         
+        except Exception as e:
+            st.error(f"Error drawing detections: {str(e)}")
+            # Return the original frame if drawing fails
+            return frame.copy() # Or return annotated_frame up to the point of error
+            
         return annotated_frame
     
     def get_detection_stats(self):

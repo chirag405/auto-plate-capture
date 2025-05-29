@@ -76,10 +76,20 @@ def capture_frames(camera, frame_queue, stop_event, frame_skip):
             # Camera error/disconnected
             break
 
+@st.cache_resource
+def load_detector():
+    """Load the license plate detector using Streamlit's cache resource."""
+    try:
+        detector = LicensePlateDetector()
+        return detector
+    except Exception as e:
+        st.error(f"Error loading license plate detector: {e}")
+        return None
+
 def main():
     # Initialize session state
-    if 'detector' not in st.session_state:
-        st.session_state.detector = None
+    # The detector is now loaded using @st.cache_resource
+    # 'detector' key will be populated by calling load_detector()
     if 'camera' not in st.session_state:
         st.session_state.camera = None
     if 'is_running' not in st.session_state:
@@ -104,7 +114,7 @@ def main():
     st.sidebar.header("⚙️ Configuration")
     
     # Model selection
-    model_path = st.sidebar.text_input("Model Path", value="plate_detection_model.pt")
+    # model_path = st.sidebar.text_input("Model Path", value="plate_detection_model.pt")
     
     # Camera selection
     camera_index = st.sidebar.selectbox("Camera Index", options=[0, 1, 2], index=0)
@@ -118,16 +128,15 @@ def main():
     frame_skip = st.sidebar.slider("Frame Skip (for performance)", 1, 10, 3)
     display_size = st.sidebar.selectbox("Display Size", ["Small (320x240)", "Medium (640x480)", "Large (800x600)"], index=1)
     
-    # Initialize detector
-    if st.sidebar.button("🔧 Initialize System"):
-        try:
-            with st.spinner("Initializing license plate detector..."):
-                st.session_state.detector = LicensePlateDetector(model_path)
-                st.session_state.detector.confidence_threshold = confidence_threshold
-            st.sidebar.success("✅ Detector initialized successfully!")
-        except Exception as e:
-            st.sidebar.error(f"❌ Error initializing detector: {str(e)}")
+    # Load the detector instance
+    st.session_state.detector = load_detector()
     
+    # Apply confidence threshold from sidebar to the loaded detector
+    if st.session_state.detector:
+        st.session_state.detector.confidence_threshold = confidence_threshold
+    else:
+        st.sidebar.error("Detector could not be loaded. Please check logs.")
+
     # Main content area
     col1, col2 = st.columns([2, 1])
     
@@ -157,6 +166,10 @@ def main():
         
         # Detection statistics
         stats_placeholder = st.empty()
+
+        # Cropped plate display
+        st.subheader("🖼️ Detected Plate Snippet")
+        cropped_plate_display = st.empty()
         
         # Recent detections table
         st.subheader("🕒 Recent Detections")
@@ -177,7 +190,8 @@ def main():
       # Handle camera start
     if start_camera:
         if st.session_state.detector is None:
-            st.error("❌ Please initialize the detector first!")
+            # This error should ideally not be hit if load_detector handles errors
+            st.error("❌ Detector not available. Check for errors during startup.")
         else:
             try:
                 # Stop any existing camera thread
@@ -199,16 +213,16 @@ def main():
                     # Reset stop event
                     st.session_state.stop_event = threading.Event()
                     
-                    # Start frame capture thread
-                    st.session_state.capture_thread = threading.Thread(
-                        target=capture_frames,
-                        args=(st.session_state.camera, 
-                              st.session_state.frame_queue,
-                              st.session_state.stop_event,
-                              frame_skip)
-                    )
-                    st.session_state.capture_thread.daemon = True
-                    st.session_state.capture_thread.start()
+                    # Start frame capture thread (DISABLED FOR NOW TO DEBUG MAIN LOOP)
+                    # st.session_state.capture_thread = threading.Thread(
+                    #     target=capture_frames,
+                    #     args=(st.session_state.camera, 
+                    #           st.session_state.frame_queue,
+                    #           st.session_state.stop_event,
+                    #           frame_skip)
+                    # )
+                    # st.session_state.capture_thread.daemon = True
+                    # st.session_state.capture_thread.start()
                     
                     st.session_state.is_running = True
                     st.session_state.frame_count = 0
@@ -249,20 +263,27 @@ def main():
         
         try:
             # Read frame from camera
+            # st.write("Main loop: Attempting to read frame...")
             ret, frame = st.session_state.camera.read()
+            # st.write(f"Main loop: Frame read, ret={ret}")
             
             if ret:
                 st.session_state.frame_count += 1
+                # st.write(f"Main loop: Frame count: {st.session_state.frame_count}")
                 
                 # Process frame (skip frames for performance)
                 if st.session_state.frame_count % frame_skip == 0:
+                    # st.write("Main loop: Processing frame...")
                     # Detect license plates
                     detections = st.session_state.detector.detect_plates_in_frame(frame)
+                    # st.write(f"Main loop: Detections received: {len(detections)} detections.")
                     
                     # Draw detections on frame
                     annotated_frame = st.session_state.detector.draw_detections(frame, detections)
+                    # st.write("Main loop: Detections drawn.")
                 else:
                     annotated_frame = frame
+                    # st.write("Main loop: Frame skipped for processing.")
                 
                 # Resize frame for display
                 if display_size == "Small (320x240)":
@@ -307,6 +328,22 @@ def main():
                         st.write("**No license plates detected yet**")
                     
                     st.markdown('</div>', unsafe_allow_html=True)
+
+                # Display cropped plate image
+                with cropped_plate_display.container():
+                    if detections:
+                        detected_plate_info = detections[0]
+                        if 'cropped_plate' in detected_plate_info and detected_plate_info['cropped_plate'] is not None:
+                            cropped_image_bgr = detected_plate_info['cropped_plate']
+                            if cropped_image_bgr.size > 0: # Check if the image is not empty
+                                cropped_image_rgb = cv2.cvtColor(cropped_image_bgr, cv2.COLOR_BGR2RGB)
+                                st.image(cropped_image_rgb, caption="Detected Plate Snippet", use_column_width=True)
+                            else:
+                                st.caption("No plate image to display.")
+                        else:
+                            st.caption("No plate image available in detection.")
+                    else:
+                        st.caption("No detections in current frame.")
                 
                 # Update recent detections
                 with recent_placeholder.container():
@@ -338,9 +375,8 @@ def main():
         with camera_placeholder.container():
             st.info("""
             📋 **Instructions:**
-            1. Initialize the detector using the sidebar
-            2. Select your camera and adjust settings
-            3. Click 'Start Camera' to begin real-time detection
+            1. Select your camera and adjust settings (Detector is loaded automatically).
+            2. Click 'Start Camera' to begin real-time detection.
             4. License plates will be automatically detected and displayed with bounding boxes
             5. Detection results will appear in the sidebar
             6. Use 'Capture Frame' to save current frame
